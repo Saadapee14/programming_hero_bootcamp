@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sticker Magic – Gorgeous Image Overlay</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="hero">
+    <h1>Sticker Magic</h1>
+    <p>Upload an image, add a cute sticker, and download the masterpiece.</p>
+  </header>
+  <main class="container">
+    <section class="card upload-card">
+      <h2>Upload Images</h2>
+      <div class="export-size">
+        <label for="exportWidth">Export Width (px)</label>
+        <input type="number" id="exportWidth" value="600" min="100" step="10" />
+        <label for="exportHeight">Export Height (px)</label>
+        <input type="number" id="exportHeight" value="400" min="100" step="10" />
+      </div>
+      <div class="upload-group">
+        <label for="baseInput">Base Image</label>
+        <input type="file" id="baseInput" accept="image/*" />
+      </div>
+      <div class="upload-group">
+        <label for="stickerInput">Sticker (Steaker)</label>
+        <input type="file" id="stickerInput" accept="image/*" />
+      </div>
+      <div class="upload-group">
+          <label for="stickerScale">Sticker Size</label>
+          <input type="range" id="stickerScale" min="0.1" max="3" step="0.1" value="1" />
+          <label for="baseScale">Base Image Size</label>
+          <input type="range" id="baseScale" min="0.1" max="3" step="0.1" value="1" />
+      </div>
+    </section>
+    <section class="card preview-card">
+      <h2>Preview</h2>
+      <canvas id="previewCanvas" width="600" height="400"></canvas>
+      <button id="downloadBtn" class="btn primary">Download Combined Image</button>
+    </section>
+  </main>
+  <script>
+    // Global state
+    let baseImage = null;
+    let stickerImage = null;
+    let stickerPos = { x: 0, y: 0, initialised: false };
+    let isDragging = false;
+    let dragOffset = { x: 0, y: 0 };
+    let stickerScale = 1; // Sticker scale
+    let baseScale = 1; // Base image scale
+    let exportWidth = 600; // Export canvas width
+    let exportHeight = 400; // Export canvas height
+
+    const canvas = document.getElementById('previewCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Utility: Compute fit dimensions for an image while preserving aspect ratio (no drawing)
+    function drawImageFit(img) {
+      const canvasRatio = canvas.width / canvas.height;
+      const imgRatio = img.width / img.height;
+      let drawWidth, drawHeight, offsetX, offsetY;
+      if (imgRatio > canvasRatio) {
+        drawWidth = canvas.width;
+        drawHeight = drawWidth / imgRatio;
+        offsetX = 0;
+        offsetY = (canvas.height - drawHeight) / 2;
+      } else {
+        drawHeight = canvas.height;
+        drawWidth = drawHeight * imgRatio;
+        offsetY = 0;
+        offsetX = (canvas.width - drawWidth) / 2;
+      }
+      return { offsetX, offsetY, drawWidth, drawHeight };
+    }
+
+    // Redraw the whole canvas – base image + sticker at current position
+    function renderCanvas() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (baseImage) {
+        // Compute fit dimensions
+        const fit = drawImageFit(baseImage);
+        // Apply baseScale
+        const scaledWidth = fit.drawWidth * baseScale;
+        const scaledHeight = fit.drawHeight * baseScale;
+        // Center the scaled image
+        const offsetX = fit.offsetX - (scaledWidth - fit.drawWidth) / 2;
+        const offsetY = fit.offsetY - (scaledHeight - fit.drawHeight) / 2;
+        ctx.drawImage(baseImage, offsetX, offsetY, scaledWidth, scaledHeight);
+      }
+
+      if (stickerImage) {
+        if (!stickerPos.initialised) {
+          const centreX = (canvas.width - stickerImage.width * stickerScale) / 2;
+          const centreY = (canvas.height - stickerImage.height * stickerScale) / 2;
+          stickerPos = { x: centreX, y: centreY, initialised: true };
+        }
+        const drawWidth = stickerImage.width * stickerScale;
+        const drawHeight = stickerImage.height * stickerScale;
+        ctx.drawImage(stickerImage, stickerPos.x, stickerPos.y, drawWidth, drawHeight);
+      }
+    }
+
+    // File input handlers
+    function handleBaseUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        const img = new Image();
+        img.onload = () => {
+          baseImage = img;
+          stickerPos = { x: 0, y: 0, initialised: false };
+          renderCanvas();
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function handleStickerUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        const img = new Image();
+        img.onload = () => {
+          stickerImage = img;
+          stickerPos = { x: 0, y: 0, initialised: false };
+          renderCanvas();
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // Drag‑and‑drop logic for the sticker
+    canvas.addEventListener('mousedown', e => {
+      if (!stickerImage) return;
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      const drawWidth = stickerImage.width * stickerScale;
+      const drawHeight = stickerImage.height * stickerScale;
+      if (
+        mouseX >= stickerPos.x &&
+        mouseX <= stickerPos.x + drawWidth &&
+        mouseY >= stickerPos.y &&
+        mouseY <= stickerPos.y + drawHeight
+      ) {
+        isDragging = true;
+        dragOffset.x = mouseX - stickerPos.x;
+        dragOffset.y = mouseY - stickerPos.y;
+        canvas.style.cursor = 'grabbing';
+      }
+    });
+
+    canvas.addEventListener('mousemove', e => {
+      if (!isDragging) return;
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      stickerPos.x = mouseX - dragOffset.x;
+      stickerPos.y = mouseY - dragOffset.y;
+      renderCanvas();
+    });
+
+    canvas.addEventListener('mouseup', () => {
+      if (isDragging) {
+        isDragging = false;
+        canvas.style.cursor = 'default';
+      }
+    });
+    canvas.addEventListener('mouseleave', () => {
+      if (isDragging) {
+        isDragging = false;
+        canvas.style.cursor = 'default';
+      }
+    });
+
+    // Download combined image
+    function downloadCombined() {
+        // Create offscreen canvas with export dimensions
+        const offCanvas = document.createElement('canvas');
+        offCanvas.width = exportWidth;
+        offCanvas.height = exportHeight;
+        const offCtx = offCanvas.getContext('2d');
+        // Draw current canvas onto offscreen canvas, scaling to fit
+        offCtx.drawImage(canvas, 0, 0, exportWidth, exportHeight);
+        const dataURL = offCanvas.toDataURL('image/png');
+        const link = document.createElement('a');
+        link.href = dataURL;
+        link.download = 'combined.png';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    // Wire up UI controls
+    document.getElementById('baseInput').addEventListener('change', handleBaseUpload);
+    document.getElementById('stickerInput').addEventListener('change', handleStickerUpload);
+    document.getElementById('downloadBtn').addEventListener('click', downloadCombined);
+    const scaleInput = document.getElementById('stickerScale');
+    if (scaleInput) {
+      scaleInput.addEventListener('input', () => {
+        stickerScale = parseFloat(scaleInput.value);
+        renderCanvas();
+      });
+      // Base image scale control
+      const baseScaleInput = document.getElementById('baseScale');
+      if (baseScaleInput) {
+        baseScaleInput.addEventListener('input', () => {
+          baseScale = parseFloat(baseScaleInput.value);
+          renderCanvas();
+        });
+      }
+      // Export size controls
+      const exportWidthInput = document.getElementById('exportWidth');
+      const exportHeightInput = document.getElementById('exportHeight');
+      if (exportWidthInput) {
+        exportWidthInput.addEventListener('input', () => {
+          exportWidth = parseInt(exportWidthInput.value, 10) || exportWidth;
+        });
+      }
+      if (exportHeightInput) {
+        exportHeightInput.addEventListener('input', () => {
+          exportHeight = parseInt(exportHeightInput.value, 10) || exportHeight;
+        });
+      }
+    }
+    }
+
+    // Initial placeholder styling
+    ctx.fillStyle = '#00000033';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.font = '16px Inter, sans-serif';
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.fillText('Upload images to start', canvas.width / 2, canvas.height / 2);
+  </script>
+</body>
+</html>
